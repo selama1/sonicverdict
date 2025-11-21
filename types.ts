@@ -1,3 +1,4 @@
+
 // Define the structure of the analysis result
 export enum Step {
   INPUT = 'INPUT',
@@ -87,4 +88,17 @@ export interface ChatMessage {
 export interface FileData {
   base64: string;
   mimeType: string;
+}
+
+export interface User {
+  email: string;
+  name: string;
+}
+
+export interface SavedReport {
+  id: string;
+  date: string;
+  artistName: string;
+  songName: string;
+  report: ProducerReport;
 }

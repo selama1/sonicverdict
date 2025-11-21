@@ -1,7 +1,9 @@
+
 import React, { useState, useRef, useEffect } from 'react';
-import { Activity, Upload, Mic2, Play, Award, Zap, AlertCircle, Music, User, FileAudio, Info, X, ExternalLink, Share2, Target, Sliders, TrendingUp, Download, Cpu, Mail } from 'lucide-react';
+import { Activity, Upload, Mic2, Play, Award, Zap, AlertCircle, Music, User as UserIcon, FileAudio, Info, X, ExternalLink, Share2, Target, Sliders, TrendingUp, Download, Cpu, Mail, LogOut, History, ArrowLeft, Lock } from 'lucide-react';
 import { analyzeAudio, generatePanelDiscussionStream } from './services/geminiService';
-import { ProducerReport, FileData, Step, ScoreItem, AIUsage } from './types';
+import { userService } from './services/userService';
+import { ProducerReport, FileData, Step, ScoreItem, AIUsage, User, SavedReport } from './types';
 import { AnalysisRadarChart } from './components/RadarChart';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -39,10 +41,30 @@ function App() {
   const [isStreamingPanel, setIsStreamingPanel] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [isPdfMode, setIsPdfMode] = useState(false); // Toggle for compact layout
+
+  // User Management State
+  const [user, setUser] = useState<User | null>(null);
+  const [showAuth, setShowAuth] = useState(false);
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
+  const [history, setHistory] = useState<SavedReport[]>([]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const reportRef = useRef<HTMLDivElement>(null);
+
+  // Initialize User
+  useEffect(() => {
+    const currentUser = userService.getCurrentUser();
+    if (currentUser) {
+      setUser(currentUser);
+      setHistory(userService.getHistory(currentUser));
+    }
+  }, []);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -52,6 +74,36 @@ function App() {
     if (e.target.files && e.target.files[0]) {
       setFile(e.target.files[0]);
     }
+  };
+
+  const handleAuth = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!authEmail || !authPassword) return;
+    setAuthError(null);
+    
+    try {
+        let u: User;
+        if (authMode === 'login') {
+        u = userService.login(authEmail, authPassword);
+        } else {
+        u = userService.register(authEmail, authPassword);
+        }
+        setUser(u);
+        setHistory(userService.getHistory(u));
+        setShowAuth(false);
+        setAuthEmail('');
+        setAuthPassword('');
+    } catch (err: any) {
+        setAuthError(err.message);
+    }
+  };
+
+  const handleLogout = () => {
+    userService.logout();
+    setUser(null);
+    setHistory([]);
+    setStep(Step.INPUT);
+    setReport(null);
   };
 
   const handleAnalyze = async (e: React.FormEvent) => {
@@ -73,11 +125,29 @@ function App() {
       const result = await analyzeAudio(formData.artistName, formData.songName, formData.intent, formData.aiUsage, fileData);
       setReport(result);
       setStep(Step.REPORT);
+      
+      // Auto-save if logged in
+      if (user) {
+        userService.saveReport(user, result);
+        setHistory(userService.getHistory(user));
+      }
     } catch (err) {
       console.error(err);
       setError("Failed to analyze audio. Please try again with a shorter file or ensure your API key is valid.");
       setStep(Step.INPUT);
     }
+  };
+
+  const loadHistoryItem = (item: SavedReport) => {
+    setReport(item.report);
+    setFormData({
+      artistName: item.artistName,
+      songName: item.songName,
+      intent: '', // Intent isn't saved in history display but could be added to SavedReport type
+      aiUsage: AIUsage.NONE
+    });
+    setStep(Step.REPORT);
+    setShowHistory(false);
   };
 
   const handleConvenedPanel = async () => {
@@ -102,30 +172,77 @@ function App() {
     if (!reportRef.current) return;
     
     setIsGeneratingPDF(true);
+    setIsPdfMode(true); // Trigger compact layout for PDF generation
+
+    // Allow DOM to update with new layout
+    // Increased timeout to ensure grid layout fully repaints before capture
+    await new Promise(resolve => setTimeout(resolve, 500));
+
     try {
-      const canvas = await html2canvas(reportRef.current, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: '#0a0a0c'
-      });
+      // Store original styles
+      const originalWidth = reportRef.current.style.width;
+      const originalMaxWidth = reportRef.current.style.maxWidth;
+      const originalPadding = reportRef.current.style.padding;
 
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: 'a4',
-      });
+      // Force a specific fixed width on the container for capture
+      // This ensures grid-cols-4 and other layout elements render in a "desktop" mode
+      // regardless of the actual viewport size.
+      reportRef.current.style.width = '1000px';
+      reportRef.current.style.maxWidth = 'none';
+      reportRef.current.style.padding = '20px';
 
-      const imgProps = pdf.getImageProperties(imgData);
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+      // Initialize PDF
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 10;
+      const contentWidth = pageWidth - (margin * 2);
+      
+      let currentY = margin;
 
-      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-      pdf.save(`${formData.songName}_SonicVerdict_Report.pdf`);
+      // Select all elements marked as PDF sections
+      // IMPORTANT: Elements must be visible in the viewport for html2canvas to capture them correctly in some cases,
+      // but typically creating a specific width override handles it.
+      const sections = reportRef.current.querySelectorAll('.pdf-section');
+      
+      for (let i = 0; i < sections.length; i++) {
+        const section = sections[i] as HTMLElement;
+        
+        // Capture section with fixed window width option
+        const canvas = await html2canvas(section, {
+          scale: 2,
+          useCORS: true,
+          backgroundColor: '#0a0a0c', // Match background
+          logging: false,
+          windowWidth: 1000 // Ensure media queries (if any) match desktop
+        });
+
+        const imgData = canvas.toDataURL('image/png');
+        const imgProps = pdf.getImageProperties(imgData);
+        // Calculate height to fit the PDF content width
+        const imgHeight = (imgProps.height * contentWidth) / imgProps.width;
+
+        // Check if we need a new page
+        if (currentY + imgHeight > pageHeight - margin) {
+          pdf.addPage();
+          currentY = margin;
+        }
+
+        pdf.addImage(imgData, 'PNG', margin, currentY, contentWidth, imgHeight);
+        currentY += imgHeight + 5; // Add padding between sections
+      }
+
+      // Restore original styles
+      reportRef.current.style.width = originalWidth;
+      reportRef.current.style.maxWidth = originalMaxWidth;
+      reportRef.current.style.padding = originalPadding;
+
+      pdf.save(`${formData.songName.replace(/\s+/g, '_')}_SonicVerdict_Report.pdf`);
     } catch (err) {
       console.error("PDF Generation failed", err);
       setError("Failed to generate PDF.");
     } finally {
+      setIsPdfMode(false); // Revert layout
       setIsGeneratingPDF(false);
     }
   };
@@ -136,12 +253,119 @@ function App() {
     }
   }, [panelTranscript]);
 
+  const renderAuthModal = () => {
+    if (!showAuth) return null;
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+        <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowAuth(false)}></div>
+        <div className="relative bg-studio-800 border border-studio-600 rounded-2xl p-8 max-w-md w-full shadow-2xl animate-fade-in">
+          <button onClick={() => setShowAuth(false)} className="absolute top-4 right-4 text-studio-400 hover:text-white">
+            <X className="w-6 h-6" />
+          </button>
+          
+          <h2 className="text-2xl font-bold text-white mb-6 text-center">
+            {authMode === 'login' ? 'Producer Login' : 'Join the Label'}
+          </h2>
+
+          {authError && (
+              <div className="mb-4 p-3 bg-red-900/30 border border-red-800 rounded text-red-300 text-sm">
+                  {authError}
+              </div>
+          )}
+
+          <form onSubmit={handleAuth} className="space-y-4">
+            <div>
+              <label className="block text-xs text-studio-400 uppercase mb-1">Email Address</label>
+              <input 
+                type="email" 
+                required
+                value={authEmail}
+                onChange={(e) => setAuthEmail(e.target.value)}
+                className="w-full bg-studio-900 border border-studio-600 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-studio-accent outline-none"
+                placeholder="producer@studio.com"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-studio-400 uppercase mb-1">Password</label>
+              <input 
+                type="password" 
+                required
+                value={authPassword}
+                onChange={(e) => setAuthPassword(e.target.value)}
+                className="w-full bg-studio-900 border border-studio-600 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-studio-accent outline-none"
+                placeholder="••••••••"
+              />
+            </div>
+            <button className="w-full bg-studio-accent hover:bg-indigo-500 text-white font-bold py-3 rounded-lg transition">
+              {authMode === 'login' ? 'Access Dashboard' : 'Create Account'}
+            </button>
+          </form>
+          
+          <div className="mt-4 text-center">
+            <button 
+              onClick={() => { setAuthMode(authMode === 'login' ? 'register' : 'login'); setAuthError(null); }}
+              className="text-sm text-studio-400 hover:text-white underline"
+            >
+              {authMode === 'login' ? "Don't have an account? Sign up" : "Already have an account? Login"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const renderHistoryModal = () => {
+    if (!showHistory) return null;
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+        <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowHistory(false)}></div>
+        <div className="relative bg-studio-800 border border-studio-600 rounded-2xl p-8 max-w-3xl w-full shadow-2xl animate-fade-in max-h-[80vh] flex flex-col">
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+              <History className="w-6 h-6 text-studio-accent" />
+              Analysis History
+            </h2>
+            <button onClick={() => setShowHistory(false)} className="text-studio-400 hover:text-white">
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+          
+          <div className="flex-1 overflow-y-auto space-y-3">
+            {history.length === 0 ? (
+              <div className="text-center py-10 text-studio-400">No reports saved yet.</div>
+            ) : (
+              history.map((item) => (
+                <div 
+                  key={item.id}
+                  onClick={() => loadHistoryItem(item)}
+                  className="flex items-center justify-between p-4 bg-studio-900/50 hover:bg-studio-700 border border-studio-700 rounded-xl cursor-pointer transition group"
+                >
+                  <div>
+                    <h3 className="font-bold text-white group-hover:text-studio-accent transition">{item.songName}</h3>
+                    <p className="text-sm text-studio-400">{item.artistName}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs text-studio-500 font-mono">{new Date(item.date).toLocaleDateString()}</p>
+                    <div className="flex items-center gap-1 text-xs text-studio-400 mt-1">
+                      <span>View Report</span>
+                      <ArrowLeft className="w-3 h-3 rotate-180" />
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderAboutModal = () => {
     if (!showAbout) return null;
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
         <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setShowAbout(false)}></div>
-        <div className="relative bg-studio-800 border border-studio-600 rounded-2xl p-8 max-w-lg w-full shadow-2xl animate-fade-in">
+        <div className="relative bg-studio-800 border border-studio-600 rounded-2xl p-8 max-w-lg w-full shadow-2xl animate-fade-in overflow-y-auto max-h-[90vh]">
           <button 
             onClick={() => setShowAbout(false)}
             className="absolute top-4 right-4 text-studio-400 hover:text-white transition"
@@ -159,11 +383,32 @@ function App() {
             </div>
           </div>
 
-          <div className="space-y-4 text-gray-300 leading-relaxed">
+          <div className="space-y-4 text-gray-300 leading-relaxed text-sm">
             <p>
               SonicVerdict deconstructs audio files into producer-grade intelligence reports and simulates a panel of industry experts debating the track's potential. It helps artists understand how their music is perceived through various professional lenses.
             </p>
             
+            <div className="bg-studio-900/50 p-4 rounded-lg border border-studio-700 my-4 space-y-3">
+                <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-studio-500 mt-0.5 shrink-0" />
+                    <div>
+                        <p className="text-xs font-bold text-studio-400 uppercase mb-1">Disclaimer</p>
+                        <p className="text-xs text-studio-500">
+                            This tool uses artificial intelligence to analyze audio. Results are subjective simulations and should be used for educational and creative purposes only. It does not guarantee market success.
+                        </p>
+                    </div>
+                </div>
+                 <div className="flex items-start gap-2">
+                    <Lock className="w-4 h-4 text-studio-500 mt-0.5 shrink-0" />
+                    <div>
+                        <p className="text-xs font-bold text-studio-400 uppercase mb-1">Privacy Policy</p>
+                        <p className="text-xs text-studio-500">
+                            We respect your intellectual property and privacy. Audio files are processed for analysis only and are not stored permanently on our servers, sold, or distributed to third parties. We do not sell or give away your email address, personal information, or usage statistics to anyone.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
             <div className="border-t border-studio-600 pt-4 mt-6">
               <p className="text-sm text-studio-400 uppercase tracking-wider mb-2">Created By</p>
               <p className="font-bold text-white text-lg">Sela Mador-Haim</p>
@@ -199,6 +444,13 @@ function App() {
       <div className="mb-8 text-center">
         <h2 className="text-3xl font-bold text-white mb-2 tracking-tight">New Project Analysis</h2>
         <p className="text-studio-400">Upload your demo for forensic evaluation.</p>
+        {!user && (
+          <div className="mt-4 p-3 bg-studio-900/50 rounded-lg inline-block">
+             <p className="text-sm text-studio-300">
+               <button onClick={() => setShowAuth(true)} className="text-studio-accent hover:underline font-bold">Log in</button> to save your report history automatically.
+             </p>
+          </div>
+        )}
       </div>
       
       <form onSubmit={handleAnalyze} className="space-y-6">
@@ -327,21 +579,32 @@ function App() {
     </div>
   );
 
+  // NOTE: Removed 'pdf-section' from individual card
   const renderScoreCard = (item: ScoreItem, index: number) => (
-    <div key={index} className="bg-studio-800 p-4 rounded-lg border border-studio-600 break-inside-avoid">
-      <div className="flex justify-between items-center mb-2">
-        <h4 className="text-sm font-bold text-gray-200">{item.criteria}</h4>
-        <span className={`text-lg font-mono font-bold ${item.score >= 8 ? 'text-green-400' : item.score >= 5 ? 'text-yellow-400' : 'text-red-400'}`}>
+    <div 
+      key={index} 
+      className={`
+        bg-studio-800 rounded-lg border border-studio-600 break-inside-avoid h-full
+        ${isPdfMode ? 'p-2' : 'p-4'}
+      `}
+    >
+      <div className="flex justify-between items-center mb-1.5">
+        <h4 className={`font-bold text-gray-200 uppercase tracking-wide pr-2 ${isPdfMode ? 'text-[10px]' : 'text-sm truncate'}`}>
+          {item.criteria}
+        </h4>
+        <span className={`font-mono font-bold ${item.score >= 8 ? 'text-green-400' : item.score >= 5 ? 'text-yellow-400' : 'text-red-400'} ${isPdfMode ? 'text-[10px]' : 'text-lg'}`}>
           {item.score}/10
         </span>
       </div>
-      <div className="w-full bg-studio-900 h-1.5 rounded-full mb-3">
+      <div className="w-full bg-studio-900 h-1 rounded-full mb-2">
         <div 
-          className={`h-1.5 rounded-full ${item.score >= 8 ? 'bg-green-500' : item.score >= 5 ? 'bg-yellow-500' : 'bg-red-500'}`}
+          className={`h-1 rounded-full ${item.score >= 8 ? 'bg-green-500' : item.score >= 5 ? 'bg-yellow-500' : 'bg-red-500'}`}
           style={{ width: `${item.score * 10}%` }}
         ></div>
       </div>
-      <p className="text-xs text-gray-400 leading-relaxed">{item.rationale}</p>
+      <p className={`text-gray-400 leading-snug ${isPdfMode ? 'text-[8px] leading-tight' : 'text-xs'}`}>
+        {item.rationale}
+      </p>
     </div>
   );
 
@@ -359,7 +622,10 @@ function App() {
 
     return (
       <div className="max-w-6xl mx-auto space-y-8 animate-fade-in">
-        <div className="flex justify-end">
+        <div className="flex justify-between items-center">
+          <button onClick={() => { setStep(Step.INPUT); setReport(null); }} className="text-sm text-studio-400 hover:text-white flex items-center gap-2">
+            <ArrowLeft className="w-4 h-4" /> Back to Input
+          </button>
           <button
             onClick={handleDownloadPDF}
             disabled={isGeneratingPDF}
@@ -374,18 +640,18 @@ function App() {
           </button>
         </div>
 
-        {/* Printable Area */}
-        <div ref={reportRef} className="space-y-8 p-4 bg-studio-900 text-white">
-          {/* Header */}
-          <div className="bg-studio-800 border border-studio-600 rounded-2xl p-6 md:p-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+        {/* Printable Area - Note the pdf-section classes added to main containers */}
+        <div ref={reportRef} className="space-y-4 p-4 bg-studio-900 text-white">
+          {/* Header - Compact */}
+          <div className="pdf-section bg-studio-800 border border-studio-600 rounded-2xl p-5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
               <div className="flex items-center gap-3 mb-1">
-                <span className="px-2 py-1 bg-studio-accent/20 text-studio-accent text-[10px] font-bold uppercase rounded tracking-wider">Report Generated</span>
+                <span className="px-2 py-0.5 bg-studio-accent/20 text-studio-accent text-[10px] font-bold uppercase rounded tracking-wider">Report Generated</span>
                 <span className="text-studio-500 text-xs font-mono">{new Date().toLocaleDateString()}</span>
               </div>
-              <h1 className="text-3xl md:text-4xl font-bold text-white mb-1">{report.songName}</h1>
-              <h2 className="text-xl text-studio-300 flex items-center gap-2 mb-2">
-                <User className="w-4 h-4" /> {report.artistName}
+              <h1 className="text-2xl md:text-3xl font-bold text-white mb-1">{report.songName}</h1>
+              <h2 className="text-lg text-studio-300 flex items-center gap-2 mb-1">
+                <UserIcon className="w-4 h-4" /> {report.artistName}
               </h2>
               <div className="flex items-center gap-2">
                  <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded border ${
@@ -398,88 +664,91 @@ function App() {
                  </span>
               </div>
             </div>
-            <div className="flex gap-4 text-center">
-               <div className="bg-studio-900 p-4 rounded-xl border border-studio-700">
-                  <p className="text-xs text-studio-500 uppercase tracking-wider">Est. Key</p>
-                  <p className="text-xl font-mono font-bold text-white">{report.composition.key}</p>
+            <div className="flex gap-3 text-center">
+               <div className="bg-studio-900 px-4 py-2 rounded-lg border border-studio-700">
+                  <p className="text-[10px] text-studio-500 uppercase tracking-wider">Est. Key</p>
+                  <p className="text-lg font-mono font-bold text-white">{report.composition.key}</p>
                </div>
-               <div className="bg-studio-900 p-4 rounded-xl border border-studio-700">
-                  <p className="text-xs text-studio-500 uppercase tracking-wider">BPM</p>
-                  <p className="text-xl font-mono font-bold text-white">{report.composition.bpm}</p>
+               <div className="bg-studio-900 px-4 py-2 rounded-lg border border-studio-700">
+                  <p className="text-[10px] text-studio-500 uppercase tracking-wider">BPM</p>
+                  <p className="text-lg font-mono font-bold text-white">{report.composition.bpm}</p>
                </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className={`grid ${isPdfMode ? 'grid-cols-3 gap-4' : 'grid-cols-1 lg:grid-cols-3 gap-4'}`}>
               {/* Left Column: Scores */}
-              <div className="lg:col-span-2 space-y-8">
+              <div className="col-span-2 space-y-4">
                   
                   {/* Radar & Overview */}
-                  <div className="bg-studio-800 border border-studio-600 rounded-2xl p-6">
-                      <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
-                          <Activity className="w-5 h-5 text-studio-accent" /> 
+                  <div className="pdf-section bg-studio-800 border border-studio-600 rounded-2xl p-5">
+                      <h3 className="text-md font-bold text-white mb-4 flex items-center gap-2 uppercase text-sm tracking-wider">
+                          <Activity className="w-4 h-4 text-studio-accent" /> 
                           Performance Matrix
                       </h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
-                          <AnalysisRadarChart scores={report.scores} />
-                          <div className="space-y-4">
-                              <div className="bg-studio-900/50 p-4 rounded-xl">
-                                  <p className="text-xs text-studio-400 uppercase mb-1">Market Positioning</p>
-                                  <div className="flex flex-wrap gap-2">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
+                          <div className="h-[250px]">
+                              <AnalysisRadarChart scores={report.scores} />
+                          </div>
+                          <div className="space-y-3">
+                              <div className="bg-studio-900/50 p-3 rounded-xl">
+                                  <p className="text-[10px] text-studio-400 uppercase mb-1">Market Positioning</p>
+                                  <div className="flex flex-wrap gap-1">
                                       {report.marketPositioning.genreTags.map(tag => (
-                                          <span key={tag} className="text-xs bg-studio-700 text-white px-2 py-1 rounded-md border border-studio-600">{tag}</span>
+                                          <span key={tag} className="text-[10px] bg-studio-700 text-white px-2 py-0.5 rounded-md border border-studio-600">{tag}</span>
                                       ))}
                                   </div>
                               </div>
-                              <div className="bg-studio-900/50 p-4 rounded-xl">
-                                  <p className="text-xs text-studio-400 uppercase mb-1">Similar Artists</p>
-                                  <p className="text-sm text-gray-300">{report.marketPositioning.similarArtists.join(", ")}</p>
+                              <div className="bg-studio-900/50 p-3 rounded-xl">
+                                  <p className="text-[10px] text-studio-400 uppercase mb-1">Similar Artists</p>
+                                  <p className="text-xs text-gray-300">{report.marketPositioning.similarArtists.join(", ")}</p>
                               </div>
-                              <div className="bg-studio-900/50 p-4 rounded-xl border-l-4 border-studio-accent">
-                                  <p className="text-xs text-studio-400 uppercase mb-1">Verdict</p>
+                              <div className="bg-studio-900/50 p-3 rounded-xl border-l-2 border-studio-accent">
+                                  <p className="text-[10px] text-studio-400 uppercase mb-1">Verdict</p>
                                   <p className="text-sm font-medium text-white italic">"{report.intentVsExecution.verdict}"</p>
                               </div>
                           </div>
                       </div>
                   </div>
 
-                  {/* Detailed Scores */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Detailed Scores - Conditional Layout */}
+                  {/* IMPORTANT: Added pdf-section to the wrapper container, not individual cards */}
+                  <div className={`pdf-section grid ${isPdfMode ? 'grid-cols-4 gap-2' : 'grid-cols-1 md:grid-cols-2 gap-4'}`}>
                       {report.scores.map((score, i) => renderScoreCard(score, i))}
                   </div>
               </div>
 
               {/* Right Column: Technical & Lyrics */}
-              <div className="space-y-8">
+              <div className="space-y-4">
                    {/* Technical */}
-                   <div className="bg-studio-800 border border-studio-600 rounded-2xl p-6">
-                      <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                          <Zap className="w-5 h-5 text-yellow-500" /> 
+                   <div className="pdf-section bg-studio-800 border border-studio-600 rounded-2xl p-5">
+                      <h3 className="text-md font-bold text-white mb-3 flex items-center gap-2 uppercase text-sm tracking-wider">
+                          <Zap className="w-4 h-4 text-yellow-500" /> 
                           Technical Breakdown
                       </h3>
-                      <ul className="space-y-4 text-sm">
+                      <ul className="space-y-3 text-xs">
                           <li>
-                              <span className="block text-xs text-studio-400 uppercase">Mix Balance</span>
+                              <span className="block text-[10px] text-studio-400 uppercase">Mix Balance</span>
                               <span className="text-gray-300">{report.technicalAnalysis.mixBalance}</span>
                           </li>
                           <li>
-                              <span className="block text-xs text-studio-400 uppercase">Stereo Image</span>
+                              <span className="block text-[10px] text-studio-400 uppercase">Stereo Image</span>
                               <span className="text-gray-300">{report.technicalAnalysis.stereoImage}</span>
                           </li>
                            <li>
-                              <span className="block text-xs text-studio-400 uppercase">Time to Chorus</span>
+                              <span className="block text-[10px] text-studio-400 uppercase">Time to Chorus</span>
                               <span className="text-gray-300">{report.structure.timeToChorus}</span>
                           </li>
                       </ul>
                    </div>
 
-                    {/* Lyrics Preview (Scrollable) */}
-                   <div className="bg-studio-800 border border-studio-600 rounded-2xl p-6 flex flex-col h-96">
-                       <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                          <Mic2 className="w-5 h-5 text-studio-accent" /> 
+                    {/* Lyrics Preview */}
+                   <div className={`pdf-section bg-studio-800 border border-studio-600 rounded-2xl p-5 flex flex-col h-auto ${isPdfMode ? '' : 'min-h-[250px]'}`}>
+                       <h3 className="text-md font-bold text-white mb-3 flex items-center gap-2 uppercase text-sm tracking-wider">
+                          <Mic2 className="w-4 h-4 text-studio-accent" /> 
                           Lyrical Forensics
                       </h3>
-                      <div className="flex-1 overflow-y-auto pr-2 text-sm text-gray-400 font-mono leading-relaxed whitespace-pre-wrap">
+                      <div className={`flex-1 pr-2 text-[10px] md:text-xs text-gray-400 font-mono leading-relaxed whitespace-pre-wrap ${isPdfMode ? '' : 'overflow-y-auto max-h-[400px]'}`}>
                           {report.lyrics}
                       </div>
                    </div>
@@ -487,73 +756,73 @@ function App() {
           </div>
 
           {/* Strategy & Improvement Section */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 break-before-page">
+          <div className={`grid ${isPdfMode ? 'grid-cols-2 gap-4' : 'grid-cols-1 md:grid-cols-2 gap-4'} break-before-page`}>
               {/* Improvements */}
-              <div className="bg-studio-800 border border-studio-600 rounded-2xl p-6">
-                  <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
-                      <Sliders className="w-5 h-5 text-blue-400" /> 
+              <div className="pdf-section bg-studio-800 border border-studio-600 rounded-2xl p-5">
+                  <h3 className="text-md font-bold text-white mb-4 flex items-center gap-2 uppercase text-sm tracking-wider">
+                      <Sliders className="w-4 h-4 text-blue-400" /> 
                       Optimization Goals
                   </h3>
-                  <div className="space-y-5">
+                  <div className="space-y-4">
                       <div className="group">
                           <div className="flex justify-between items-center mb-1">
-                             <p className="text-xs text-blue-400 uppercase tracking-wider group-hover:text-blue-300 transition">Production & Mix</p>
-                             <span className={`text-[10px] px-2 py-0.5 rounded border font-bold uppercase ${getImportanceColor(report.improvementTips.production.importance)}`}>
+                             <p className="text-[10px] text-blue-400 uppercase tracking-wider group-hover:text-blue-300 transition">Production</p>
+                             <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold uppercase ${getImportanceColor(report.improvementTips.production.importance)}`}>
                                 {report.improvementTips.production.importance}
                              </span>
                           </div>
-                          <p className="text-gray-300 text-sm leading-relaxed">{report.improvementTips.production.suggestion}</p>
+                          <p className="text-gray-300 text-xs leading-relaxed">{report.improvementTips.production.suggestion}</p>
                       </div>
                       <div className="h-px bg-studio-700" />
                       <div className="group">
                            <div className="flex justify-between items-center mb-1">
-                              <p className="text-xs text-blue-400 uppercase tracking-wider group-hover:text-blue-300 transition">Composition & Arrangement</p>
-                              <span className={`text-[10px] px-2 py-0.5 rounded border font-bold uppercase ${getImportanceColor(report.improvementTips.composition.importance)}`}>
+                              <p className="text-[10px] text-blue-400 uppercase tracking-wider group-hover:text-blue-300 transition">Composition</p>
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold uppercase ${getImportanceColor(report.improvementTips.composition.importance)}`}>
                                 {report.improvementTips.composition.importance}
                              </span>
                           </div>
-                          <p className="text-gray-300 text-sm leading-relaxed">{report.improvementTips.composition.suggestion}</p>
+                          <p className="text-gray-300 text-xs leading-relaxed">{report.improvementTips.composition.suggestion}</p>
                       </div>
                       <div className="h-px bg-studio-700" />
                       <div className="group">
                            <div className="flex justify-between items-center mb-1">
-                              <p className="text-xs text-blue-400 uppercase tracking-wider group-hover:text-blue-300 transition">Performance</p>
-                              <span className={`text-[10px] px-2 py-0.5 rounded border font-bold uppercase ${getImportanceColor(report.improvementTips.performance.importance)}`}>
+                              <p className="text-[10px] text-blue-400 uppercase tracking-wider group-hover:text-blue-300 transition">Performance</p>
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold uppercase ${getImportanceColor(report.improvementTips.performance.importance)}`}>
                                 {report.improvementTips.performance.importance}
                              </span>
                           </div>
-                          <p className="text-gray-300 text-sm leading-relaxed">{report.improvementTips.performance.suggestion}</p>
+                          <p className="text-gray-300 text-xs leading-relaxed">{report.improvementTips.performance.suggestion}</p>
                       </div>
                   </div>
               </div>
 
               {/* Marketing & Launch */}
-              <div className="bg-studio-800 border border-studio-600 rounded-2xl p-6">
-                   <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
-                      <TrendingUp className="w-5 h-5 text-green-400" /> 
+              <div className="pdf-section bg-studio-800 border border-studio-600 rounded-2xl p-5">
+                   <h3 className="text-md font-bold text-white mb-4 flex items-center gap-2 uppercase text-sm tracking-wider">
+                      <TrendingUp className="w-4 h-4 text-green-400" /> 
                       Strategic Roadmap
                   </h3>
-                  <div className="space-y-6">
+                  <div className="space-y-4">
                       <div>
-                          <p className="flex items-center gap-2 text-xs text-studio-400 uppercase tracking-wider mb-2">
+                          <p className="flex items-center gap-2 text-[10px] text-studio-400 uppercase tracking-wider mb-2">
                               <Share2 className="w-3 h-3" /> Social & Distribution
                           </p>
-                          <ul className="list-disc list-inside text-sm text-gray-300 space-y-1 marker:text-studio-600">
-                              {report.marketingSuggestions.socialStrategy.map((s, i) => <li key={i}>{s}</li>)}
-                              {report.marketingSuggestions.streamingStrategy.map((s, i) => <li key={i}>{s}</li>)}
+                          <ul className="list-disc list-inside text-xs text-gray-300 space-y-1 marker:text-studio-600">
+                              {report.marketingSuggestions.socialStrategy.slice(0,2).map((s, i) => <li key={i}>{s}</li>)}
+                              {report.marketingSuggestions.streamingStrategy.slice(0,2).map((s, i) => <li key={i}>{s}</li>)}
                           </ul>
                       </div>
                       
                       <div>
-                           <p className="flex items-center gap-2 text-xs text-studio-400 uppercase tracking-wider mb-2">
+                           <p className="flex items-center gap-2 text-[10px] text-studio-400 uppercase tracking-wider mb-2">
                               <Target className="w-3 h-3" /> Target Labels
                           </p>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                               {report.marketingSuggestions.targetLabels.map((labelGroup, idx) => (
-                                  <div key={idx} className="bg-studio-900/50 p-3 rounded-lg border border-studio-700">
-                                      <p className="text-[10px] text-green-400 font-bold uppercase mb-1">{labelGroup.type}</p>
-                                      <p className="text-sm font-bold text-white mb-1">{labelGroup.names.join(", ")}</p>
-                                      <p className="text-[10px] text-gray-500 leading-tight">{labelGroup.reason}</p>
+                                  <div key={idx} className="bg-studio-900/50 p-2 rounded-lg border border-studio-700">
+                                      <p className="text-[10px] text-green-400 font-bold uppercase mb-0.5">{labelGroup.type}</p>
+                                      <p className="text-xs font-bold text-white mb-0.5 truncate">{labelGroup.names.join(", ")}</p>
+                                      <p className="text-[10px] text-gray-500 leading-tight line-clamp-2">{labelGroup.reason}</p>
                                   </div>
                               ))}
                           </div>
@@ -570,7 +839,7 @@ function App() {
                     onClick={handleConvenedPanel}
                     className="bg-white text-studio-900 hover:bg-gray-100 px-8 py-4 rounded-full font-bold text-lg shadow-[0_0_20px_rgba(255,255,255,0.3)] transition transform hover:scale-105 flex items-center gap-3"
                 >
-                    <User className="w-6 h-6" />
+                    <UserIcon className="w-6 h-6" />
                     Convene Producer Panel
                 </button>
              </div>
@@ -638,6 +907,23 @@ function App() {
                 <span className="font-bold text-xl tracking-tight text-white">SonicVerdict</span>
             </div>
             <div className="flex items-center gap-4">
+              {user ? (
+                <>
+                   <button onClick={() => setShowHistory(true)} className="text-sm text-studio-400 hover:text-white transition flex items-center gap-1">
+                      <History className="w-4 h-4" />
+                      <span className="hidden md:inline">History</span>
+                   </button>
+                   <button onClick={handleLogout} className="text-sm text-studio-400 hover:text-white transition flex items-center gap-1">
+                      <LogOut className="w-4 h-4" />
+                      <span className="hidden md:inline">Logout</span>
+                   </button>
+                </>
+              ) : (
+                <button onClick={() => setShowAuth(true)} className="text-sm text-studio-accent hover:text-white transition font-medium">
+                   Log In
+                </button>
+              )}
+              
               <button onClick={() => setShowAbout(true)} className="text-sm text-studio-400 hover:text-white transition flex items-center gap-1">
                   <Info className="w-4 h-4" />
                   <span className="hidden md:inline">About</span>
@@ -659,6 +945,8 @@ function App() {
         {(step === Step.DISCUSSING || step === Step.FULL_VIEW) && renderPanel()}
         
         {renderAboutModal()}
+        {renderAuthModal()}
+        {renderHistoryModal()}
     </div>
   );
 }
