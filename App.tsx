@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { Activity, Upload, Mic2, Play, Award, Zap, AlertCircle, Music, User as UserIcon, FileAudio, Info, X, ExternalLink, Share2, Target, Sliders, TrendingUp, Download, Cpu, Mail, LogOut, History, ArrowLeft, Lock } from 'lucide-react';
 import { analyzeAudio, generatePanelDiscussionStream } from './services/geminiService';
@@ -579,20 +578,19 @@ function App() {
     </div>
   );
 
-  // NOTE: Removed 'pdf-section' from individual card
   const renderScoreCard = (item: ScoreItem, index: number) => (
     <div 
       key={index} 
       className={`
         bg-studio-800 rounded-lg border border-studio-600 break-inside-avoid h-full
-        ${isPdfMode ? 'p-2' : 'p-4'}
+        ${isPdfMode ? 'p-3' : 'p-4'}
       `}
     >
       <div className="flex justify-between items-center mb-1.5">
-        <h4 className={`font-bold text-gray-200 uppercase tracking-wide pr-2 ${isPdfMode ? 'text-[10px]' : 'text-sm truncate'}`}>
+        <h4 className={`font-bold text-gray-200 uppercase tracking-wide pr-2 ${isPdfMode ? 'text-sm' : 'text-sm truncate'}`}>
           {item.criteria}
         </h4>
-        <span className={`font-mono font-bold ${item.score >= 8 ? 'text-green-400' : item.score >= 5 ? 'text-yellow-400' : 'text-red-400'} ${isPdfMode ? 'text-[10px]' : 'text-lg'}`}>
+        <span className={`font-mono font-bold ${item.score >= 8 ? 'text-green-400' : item.score >= 5 ? 'text-yellow-400' : 'text-red-400'} ${isPdfMode ? 'text-base' : 'text-lg'}`}>
           {item.score}/10
         </span>
       </div>
@@ -602,7 +600,7 @@ function App() {
           style={{ width: `${item.score * 10}%` }}
         ></div>
       </div>
-      <p className={`text-gray-400 leading-snug ${isPdfMode ? 'text-[8px] leading-tight' : 'text-xs'}`}>
+      <p className={`text-gray-400 leading-snug ${isPdfMode ? 'text-[10px] leading-tight' : 'text-xs'}`}>
         {item.rationale}
       </p>
     </div>
@@ -687,7 +685,7 @@ function App() {
                           Performance Matrix
                       </h3>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
-                          <div className="h-[250px]">
+                          <div className={`${isPdfMode ? 'h-[300px]' : 'h-[350px]'}`}>
                               <AnalysisRadarChart scores={report.scores} />
                           </div>
                           <div className="space-y-3">
@@ -695,25 +693,24 @@ function App() {
                                   <p className="text-[10px] text-studio-400 uppercase mb-1">Market Positioning</p>
                                   <div className="flex flex-wrap gap-1">
                                       {report.marketPositioning.genreTags.map(tag => (
-                                          <span key={tag} className="text-[10px] bg-studio-700 text-white px-2 py-0.5 rounded-md border border-studio-600">{tag}</span>
+                                          <span key={tag} className={`px-2 py-0.5 rounded-md border border-studio-600 text-white bg-studio-700 ${isPdfMode ? 'text-[8px]' : 'text-[10px]'}`}>{tag}</span>
                                       ))}
                                   </div>
                               </div>
                               <div className="bg-studio-900/50 p-3 rounded-xl">
                                   <p className="text-[10px] text-studio-400 uppercase mb-1">Similar Artists</p>
-                                  <p className="text-xs text-gray-300">{report.marketPositioning.similarArtists.join(", ")}</p>
+                                  <p className={`${isPdfMode ? 'text-[8px]' : 'text-xs'} text-gray-300`}>{report.marketPositioning.similarArtists.join(", ")}</p>
                               </div>
                               <div className="bg-studio-900/50 p-3 rounded-xl border-l-2 border-studio-accent">
                                   <p className="text-[10px] text-studio-400 uppercase mb-1">Verdict</p>
-                                  <p className="text-sm font-medium text-white italic">"{report.intentVsExecution.verdict}"</p>
+                                  <p className={`${isPdfMode ? 'text-[9px]' : 'text-sm'} font-medium text-white italic`}>"{report.intentVsExecution.verdict}"</p>
                               </div>
                           </div>
                       </div>
                   </div>
 
                   {/* Detailed Scores - Conditional Layout */}
-                  {/* IMPORTANT: Added pdf-section to the wrapper container, not individual cards */}
-                  <div className={`pdf-section grid ${isPdfMode ? 'grid-cols-4 gap-2' : 'grid-cols-1 md:grid-cols-2 gap-4'}`}>
+                  <div className={`pdf-section grid ${isPdfMode ? 'grid-cols-2 gap-3' : 'grid-cols-1 md:grid-cols-2 gap-4'}`}>
                       {report.scores.map((score, i) => renderScoreCard(score, i))}
                   </div>
               </div>
@@ -748,7 +745,7 @@ function App() {
                           <Mic2 className="w-4 h-4 text-studio-accent" /> 
                           Lyrical Forensics
                       </h3>
-                      <div className={`flex-1 pr-2 text-[10px] md:text-xs text-gray-400 font-mono leading-relaxed whitespace-pre-wrap ${isPdfMode ? '' : 'overflow-y-auto max-h-[400px]'}`}>
+                      <div className={`flex-1 pr-2 font-mono leading-relaxed whitespace-pre-wrap text-gray-400 ${isPdfMode ? 'text-[7px] columns-2 gap-6' : 'text-[10px] md:text-xs overflow-y-auto max-h-[400px]'}`}>
                           {report.lyrics}
                       </div>
                    </div>
@@ -771,7 +768,7 @@ function App() {
                                 {report.improvementTips.production.importance}
                              </span>
                           </div>
-                          <p className="text-gray-300 text-xs leading-relaxed">{report.improvementTips.production.suggestion}</p>
+                          <p className={`text-gray-300 leading-relaxed ${isPdfMode ? 'text-[8px]' : 'text-xs'}`}>{report.improvementTips.production.suggestion}</p>
                       </div>
                       <div className="h-px bg-studio-700" />
                       <div className="group">
@@ -781,7 +778,7 @@ function App() {
                                 {report.improvementTips.composition.importance}
                              </span>
                           </div>
-                          <p className="text-gray-300 text-xs leading-relaxed">{report.improvementTips.composition.suggestion}</p>
+                          <p className={`text-gray-300 leading-relaxed ${isPdfMode ? 'text-[8px]' : 'text-xs'}`}>{report.improvementTips.composition.suggestion}</p>
                       </div>
                       <div className="h-px bg-studio-700" />
                       <div className="group">
@@ -791,7 +788,7 @@ function App() {
                                 {report.improvementTips.performance.importance}
                              </span>
                           </div>
-                          <p className="text-gray-300 text-xs leading-relaxed">{report.improvementTips.performance.suggestion}</p>
+                          <p className={`text-gray-300 leading-relaxed ${isPdfMode ? 'text-[8px]' : 'text-xs'}`}>{report.improvementTips.performance.suggestion}</p>
                       </div>
                   </div>
               </div>
@@ -807,7 +804,7 @@ function App() {
                           <p className="flex items-center gap-2 text-[10px] text-studio-400 uppercase tracking-wider mb-2">
                               <Share2 className="w-3 h-3" /> Social & Distribution
                           </p>
-                          <ul className="list-disc list-inside text-xs text-gray-300 space-y-1 marker:text-studio-600">
+                          <ul className={`list-disc list-inside text-gray-300 space-y-1 marker:text-studio-600 ${isPdfMode ? 'text-[8px]' : 'text-xs'}`}>
                               {report.marketingSuggestions.socialStrategy.slice(0,2).map((s, i) => <li key={i}>{s}</li>)}
                               {report.marketingSuggestions.streamingStrategy.slice(0,2).map((s, i) => <li key={i}>{s}</li>)}
                           </ul>
@@ -821,8 +818,8 @@ function App() {
                               {report.marketingSuggestions.targetLabels.map((labelGroup, idx) => (
                                   <div key={idx} className="bg-studio-900/50 p-2 rounded-lg border border-studio-700">
                                       <p className="text-[10px] text-green-400 font-bold uppercase mb-0.5">{labelGroup.type}</p>
-                                      <p className="text-xs font-bold text-white mb-0.5 truncate">{labelGroup.names.join(", ")}</p>
-                                      <p className="text-[10px] text-gray-500 leading-tight line-clamp-2">{labelGroup.reason}</p>
+                                      <p className={`font-bold text-white mb-0.5 ${isPdfMode ? 'text-[9px]' : 'text-xs truncate'}`}>{labelGroup.names.join(", ")}</p>
+                                      <p className={`text-[10px] text-gray-500 leading-tight ${isPdfMode ? '' : 'line-clamp-2'}`}>{labelGroup.reason}</p>
                                   </div>
                               ))}
                           </div>

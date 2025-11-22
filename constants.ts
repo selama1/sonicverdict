@@ -74,7 +74,7 @@ Required JSON Structure:
 }
 `;
 
-export const STEP_2_PROMPT_TEMPLATE = `
+export const STEP_2_SYSTEM_PROMPT = `
 Acting as a panel of 4 producers (The Hit-Seeker, The Artiste, The Niche Specialist, and The Ruthless Executive), analyze the data above. 
 Using the specific scores and lyrics provided in the previous turn, have them argue about whether this song is a 'Go' or a 'No-Go' based on their unique priorities.
 

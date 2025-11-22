@@ -1,6 +1,7 @@
 import { GoogleGenAI, GenerateContentResponse, Chat } from "@google/genai";
 import { ProducerReport, FileData } from "../types";
 import { STEP_1_SYSTEM_PROMPT } from "../constants";
+import { STEP_2_SYSTEM_PROMPT } from "../constants";
 
 const getAIClient = () => {
   const apiKey = process.env.API_KEY;
@@ -28,7 +29,7 @@ export const analyzeAudio = async (
 
   try {
     const response: GenerateContentResponse = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3-pro-preview",
       contents: {
         parts: [
           {
@@ -43,6 +44,8 @@ export const analyzeAudio = async (
       config: {
         systemInstruction: STEP_1_SYSTEM_PROMPT,
         responseMimeType: "application/json",
+        temperature: 0.5
+        ,
       },
     });
 
@@ -88,7 +91,8 @@ export const generatePanelDiscussionStream = async (
   const chat: Chat = ai.chats.create({
     model: "gemini-2.5-flash",
     config: {
-        systemInstruction: "You are a panel of 4 music producers: The Hit-Seeker, The Artiste, The Niche Specialist, and The Ruthless Executive. Argue about the song provided. Output strictly as a script with names like 'THE HIT-SEEKER:'.",
+        //systemInstruction: "You are a panel of 4 music producers: The Hit-Seeker, The Artiste, The Niche Specialist, and The Ruthless Executive. Argue about the song provided. Output strictly as a script with names like 'THE HIT-SEEKER:'.",
+        systemInstruction: STEP_2_SYSTEM_PROMPT,
     }
   });
 

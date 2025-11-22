@@ -19,9 +19,9 @@ export const AnalysisRadarChart: React.FC<Props> = ({ scores }) => {
   }));
 
   return (
-    <div className="w-full h-[300px] md:h-[400px]">
+    <div className="w-full h-full">
       <ResponsiveContainer width="100%" height="100%">
-        <RadarChart cx="50%" cy="50%" outerRadius="80%" data={data}>
+        <RadarChart cx="50%" cy="50%" outerRadius="65%" data={data}>
           <PolarGrid stroke="#4b5563" />
           <PolarAngleAxis dataKey="subject" tick={{ fill: '#9ca3af', fontSize: 10 }} />
           <PolarRadiusAxis angle={30} domain={[0, 10]} tick={false} axisLine={false} />
