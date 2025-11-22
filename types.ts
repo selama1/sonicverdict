@@ -46,6 +46,7 @@ export interface ImprovementData {
 export interface ProducerReport {
   artistName: string;
   songName: string;
+  miniReview: string;
   lyrics: string;
   timestamps: string[];
   prosodyIssues: string[];

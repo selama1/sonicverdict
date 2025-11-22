@@ -44,8 +44,7 @@ export const analyzeAudio = async (
       config: {
         systemInstruction: STEP_1_SYSTEM_PROMPT,
         responseMimeType: "application/json",
-        temperature: 0.5
-        ,
+        temperature: 0,
       },
     });
 

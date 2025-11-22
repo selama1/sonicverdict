@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Activity, Upload, Mic2, Play, Award, Zap, AlertCircle, Music, User as UserIcon, FileAudio, Info, X, ExternalLink, Share2, Target, Sliders, TrendingUp, Download, Cpu, Mail, LogOut, History, ArrowLeft, Lock } from 'lucide-react';
+import { Activity, Upload, Mic2, Play, Award, Zap, AlertCircle, Music, User as UserIcon, FileAudio, Info, X, ExternalLink, Share2, Target, Sliders, TrendingUp, Download, Cpu, Mail, LogOut, History, ArrowLeft, Lock, Quote } from 'lucide-react';
 import { analyzeAudio, generatePanelDiscussionStream } from './services/geminiService';
 import { userService } from './services/userService';
 import { ProducerReport, FileData, Step, ScoreItem, AIUsage, User, SavedReport } from './types';
@@ -236,7 +236,7 @@ function App() {
       reportRef.current.style.maxWidth = originalMaxWidth;
       reportRef.current.style.padding = originalPadding;
 
-      pdf.save(`${formData.songName.replace(/\s+/g, '_')}_SonicVerdict_Report.pdf`);
+      pdf.save(`${formData.songName.replace(/\s+/g, '_')}_SongRater_Report.pdf`);
     } catch (err) {
       console.error("PDF Generation failed", err);
       setError("Failed to generate PDF.");
@@ -377,14 +377,14 @@ function App() {
               <Award className="text-white w-7 h-7" />
             </div>
             <div>
-              <h3 className="text-2xl font-bold text-white">SonicVerdict</h3>
+              <h3 className="text-2xl font-bold text-white">SongRater.ai</h3>
               <p className="text-studio-400 text-sm">AI-Powered Music Analysis</p>
             </div>
           </div>
 
           <div className="space-y-4 text-gray-300 leading-relaxed text-sm">
             <p>
-              SonicVerdict deconstructs audio files into producer-grade intelligence reports and simulates a panel of industry experts debating the track's potential. It helps artists understand how their music is perceived through various professional lenses.
+              SongRater.ai deconstructs audio files into producer-grade intelligence reports and simulates a panel of industry experts debating the track's potential. It helps artists understand how their music is perceived through various professional lenses.
             </p>
             
             <div className="bg-studio-900/50 p-4 rounded-lg border border-studio-700 my-4 space-y-3">
@@ -674,6 +674,17 @@ function App() {
             </div>
           </div>
 
+           {/* Executive Summary (Mini Review) - New Section */}
+           <div className="pdf-section bg-studio-800 border border-studio-600 rounded-2xl p-5">
+              <h3 className="text-md font-bold text-white mb-2 flex items-center gap-2 uppercase text-sm tracking-wider">
+                  <Quote className="w-4 h-4 text-studio-accent" /> 
+                  Producer's Executive Summary
+              </h3>
+              <p className={`text-gray-300 leading-relaxed italic ${isPdfMode ? 'text-[11px]' : 'text-sm'}`}>
+                  "{report.miniReview}"
+              </p>
+          </div>
+
           <div className={`grid ${isPdfMode ? 'grid-cols-3 gap-4' : 'grid-cols-1 lg:grid-cols-3 gap-4'}`}>
               {/* Left Column: Scores */}
               <div className="col-span-2 space-y-4">
@@ -685,7 +696,7 @@ function App() {
                           Performance Matrix
                       </h3>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
-                          <div className={`${isPdfMode ? 'h-[300px]' : 'h-[350px]'}`}>
+                          <div className={`${isPdfMode ? 'h-[320px]' : 'h-[400px]'}`}>
                               <AnalysisRadarChart scores={report.scores} />
                           </div>
                           <div className="space-y-3">
@@ -745,7 +756,7 @@ function App() {
                           <Mic2 className="w-4 h-4 text-studio-accent" /> 
                           Lyrical Forensics
                       </h3>
-                      <div className={`flex-1 pr-2 font-mono leading-relaxed whitespace-pre-wrap text-gray-400 ${isPdfMode ? 'text-[7px] columns-2 gap-6' : 'text-[10px] md:text-xs overflow-y-auto max-h-[400px]'}`}>
+                      <div className={`flex-1 pr-2 font-mono leading-tight whitespace-pre-wrap text-gray-400 ${isPdfMode ? 'text-[7px] columns-2 gap-6' : 'text-[10px] md:text-xs overflow-y-auto max-h-[400px]'}`}>
                           {report.lyrics}
                       </div>
                    </div>
@@ -901,7 +912,7 @@ function App() {
                 <div className="w-8 h-8 bg-studio-accent rounded flex items-center justify-center">
                     <Award className="text-white w-5 h-5" />
                 </div>
-                <span className="font-bold text-xl tracking-tight text-white">SonicVerdict</span>
+                <span className="font-bold text-xl tracking-tight text-white">SongRater.ai</span>
             </div>
             <div className="flex items-center gap-4">
               {user ? (
